@@ -269,5 +269,7 @@ if __name__ == '__main__':
         print(f"  Min token length: {security.get('min_token_length', 128)} characters")
         print(f"  Check duplicate tokens: {security.get('check_duplicate_tokens', True)}")
         print("  Username validation: Via player head API")
-    
-    app.run(port=5000, debug=True)
+        
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
