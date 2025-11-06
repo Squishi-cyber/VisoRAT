@@ -2,7 +2,7 @@
     "security": {
         "rate_limit_seconds": 600,
         "min_token_length": 128,
-        "check_duplicate_tokens": true
+        "check_duplicate_tokens": false
     },
     "endpoints": {
         "/receive": {
@@ -36,3 +36,4 @@
         }
     }
 }
+
